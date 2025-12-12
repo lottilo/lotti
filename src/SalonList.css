@@ -1,0 +1,67 @@
+/* Container for all salon cards */
+.salon-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 20px;
+  justify-content: center;
+}
+
+/* Individual salon card styling */
+.salon-card {
+  background-color: #ffffff;
+  border-radius: 12px;
+  padding: 20px;
+  width: 260px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* Hover effect for cards */
+.salon-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* Salon title */
+.salon-card h2 {
+  margin: 0 0 10px 0;
+  font-size: 20px;
+  color: #333;
+}
+
+/* Salon details */
+.salon-card p {
+  margin: 5px 0;
+  font-size: 14px;
+  color: #555;
+}
+
+/* Button for details */
+.details-btn {
+  margin-top: auto;
+  padding: 8px 12px;
+  background-color: #007bff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.details-btn:hover {
+  background-color: #0056b3;
+}
+
+/* Loading & error messages */
+.loading, .error {
+  text-align: center;
+  font-size: 16px;
+  color: #666;
+  width: 100%;
+}
+
