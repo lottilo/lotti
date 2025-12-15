@@ -10,7 +10,7 @@ function Login({ setToken }) {
     setError(null);
 
     try {
-      const res = await fetch("https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/providers/Login", {
+      const res = await fetch("https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/providers/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password })

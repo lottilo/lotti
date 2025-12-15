@@ -29,7 +29,7 @@ function Dashboard({ token, logout }) {
 
   // Зареждане на резервации
   useEffect(() => {
-    fetch("lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/my/bookings", { headers: apiHeaders })
+    fetch("https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/my/bookings", { headers: apiHeaders })
       .then(res => res.json())
       .then(data => {
         setBookings(data);
@@ -43,7 +43,7 @@ function Dashboard({ token, logout }) {
 
   const handleAddService = () => {
     if (!newService.name || !newService.price) return;
-    fetch("http://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/my/services", {
+    fetch("https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/my/services", {
       method: "POST",
       headers: apiHeaders,
       body: JSON.stringify(newService),

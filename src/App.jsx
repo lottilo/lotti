@@ -1,10 +1,11 @@
 import { useState } from "react";
-import SalonList from "./SalonList";
 import Login from "./Login";
+import Register from "./Register";
 import Dashboard from "./Dashboard";
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem("token") || null);
+  const [showRegister, setShowRegister] = useState(false);
 
   const handleLogout = () => {
     setToken(null);
@@ -13,19 +14,32 @@ function App() {
 
   if (!token) {
     return (
-      <div>
-        <h1 style={{ textAlign: "center", marginTop: "20px" }}>Панел за салоните</h1>
-        <Login setToken={(t) => { setToken(t); localStorage.setItem("token", t); }} />
+      <div style={{ textAlign: "center", marginTop: "20px" }}>
+        <h1>Панел за салоните</h1>
+
+        {showRegister ? (
+          <Register setToken={setToken} />
+        ) : (
+          <Login setToken={(t) => { setToken(t); localStorage.setItem("token", t); }} />
+        )}
+
+        <button 
+          onClick={() => setShowRegister(!showRegister)} 
+          style={{ marginTop: "10px" }}
+        >
+          {showRegister ? "Вход" : "Регистрация"}
+        </button>
       </div>
     );
   }
 
   return (
-    <div>
-      <h1 style={{ textAlign: "center", marginTop: "20px" }}>Панел за салоните</h1>
+    <div style={{ textAlign: "center", marginTop: "20px" }}>
+      <h1>Панел за салоните</h1>
       <Dashboard token={token} logout={handleLogout} />
     </div>
   );
 }
 
 export default App;
+
