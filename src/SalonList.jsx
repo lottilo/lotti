@@ -7,7 +7,7 @@ function SalonList() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetch("http://localhost:3000/providers")
+    fetch("https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/providers")
       .then(res => {
         if (!res.ok) throw new Error("Failed to fetch salons");
         return res.json();
