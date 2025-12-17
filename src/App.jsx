@@ -13,33 +13,21 @@ function App() {
   };
 
   if (!token) {
-    return (
-      <div style={{ textAlign: "center", marginTop: "20px" }}>
-        <h1>Панел за салоните</h1>
-
-        {showRegister ? (
-          <Register setToken={setToken} />
-        ) : (
-          <Login setToken={(t) => { setToken(t); localStorage.setItem("token", t); }} />
-        )}
-
-        <button 
-          onClick={() => setShowRegister(!showRegister)} 
-          style={{ marginTop: "10px" }}
-        >
-          {showRegister ? "Вход" : "Регистрация"}
-        </button>
-      </div>
+    return showRegister ? (
+      <Register
+        switchToLogin={() => setShowRegister(false)}
+      />
+    ) : (
+      <Login
+        setToken={(t) => { setToken(t); localStorage.setItem("token", t); }}
+        switchToRegister={() => setShowRegister(true)}
+      />
     );
   }
 
-  return (
-    <div style={{ textAlign: "center", marginTop: "20px" }}>
-      <h1>Панел за салоните</h1>
-      <Dashboard token={token} logout={handleLogout} />
-    </div>
-  );
+  return <Dashboard token={token} logout={handleLogout} />;
 }
 
 export default App;
+
 

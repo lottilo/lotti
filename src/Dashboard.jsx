@@ -119,8 +119,8 @@ function Dashboard({ token, logout }) {
   }
 
   return (
+     <div className="min-h-screen bg-neutral-50">
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <div>
           <h2 style={{ margin: 0 }}>Дашборд</h2>
           <div style={{ opacity: 0.7, marginTop: 6 }}>Управление на услуги и резервации</div>
