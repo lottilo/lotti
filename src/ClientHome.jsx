@@ -18,6 +18,15 @@ function todayISO() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function addDaysISO(iso, delta) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + delta);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export default function ClientHome({ onSalonLoginClick }) {
   const [q, setQ] = useState("");
 
@@ -59,7 +68,7 @@ export default function ClientHome({ onSalonLoginClick }) {
         const res = await fetch(`${API}/providers`);
         const data = await res.json();
         setProviders(Array.isArray(data) ? data : []);
-      } catch (e) {
+      } catch {
         setError("Не успях да заредя салоните. Опитай пак след малко.");
       } finally {
         setLoadingProviders(false);
@@ -83,7 +92,7 @@ export default function ClientHome({ onSalonLoginClick }) {
       const res = await fetch(`${API}/providers/${p.id}/services`);
       const data = await res.json();
       setServices(Array.isArray(data) ? data : []);
-    } catch (e) {
+    } catch {
       setError("Не успях да заредя услугите на салона.");
       setServices([]);
     } finally {
@@ -97,8 +106,7 @@ export default function ClientHome({ onSalonLoginClick }) {
     setError("");
   }
 
-  // Booking modal open
-  async function startBooking(service) {
+  function startBooking(service) {
     if (!selected) return;
     setBookingService(service);
     setBookingDate(todayISO());
@@ -163,7 +171,7 @@ export default function ClientHome({ onSalonLoginClick }) {
         body: JSON.stringify({
           providerId: selected.id,
           serviceId: bookingService.id,
-          startAt: chosenSlot, // ISO string от slots
+          startAt: chosenSlot, // ISO string
           customerName: customerName.trim(),
           customerPhone: customerPhone.trim(),
         }),
@@ -171,9 +179,7 @@ export default function ClientHome({ onSalonLoginClick }) {
 
       const data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        throw new Error(data.message || "Неуспешна резервация");
-      }
+      if (!res.ok) throw new Error(data.message || "Неуспешна резервация");
 
       showToast("✅ Резервацията е създадена!");
       setBookingOpen(false);
@@ -188,7 +194,7 @@ export default function ClientHome({ onSalonLoginClick }) {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white">
+    <div className="min-h-screen text-white bg-gradient-to-b from-[#050806] via-[#0a120f] to-[#050806]">
       {/* toast */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50">
@@ -199,7 +205,7 @@ export default function ClientHome({ onSalonLoginClick }) {
       )}
 
       {/* Top bar */}
-      <header className="border-b border-white/10 bg-black/30 backdrop-blur">
+      <header className="border-b border-white/10 bg-black/20 backdrop-blur">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div>
             <div className="text-lg font-semibold tracking-tight">LOTTI</div>
@@ -220,7 +226,7 @@ export default function ClientHome({ onSalonLoginClick }) {
         <div className="grid gap-6 lg:grid-cols-2 items-center">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/10 px-3 py-1 text-xs text-white/80">
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.55)]" />
               Резервирай онлайн
             </div>
 
@@ -230,7 +236,7 @@ export default function ClientHome({ onSalonLoginClick }) {
             </h1>
 
             <p className="mt-3 text-white/70 max-w-prose">
-              Избираш салон → услуга → свободен час → оставяш име и телефон.
+              Избираш салон → услуга → дата → свободен час → потвърждение.
             </p>
 
             <div className="mt-6 flex flex-col sm:flex-row gap-3">
@@ -246,7 +252,7 @@ export default function ClientHome({ onSalonLoginClick }) {
 
               <button
                 type="button"
-                className="rounded-2xl px-5 py-3 bg-emerald-500 text-white font-semibold hover:bg-emerald-600 transition"
+                className="rounded-2xl px-5 py-3 bg-emerald-500 text-white font-semibold hover:bg-emerald-400 transition shadow-[0_0_25px_rgba(16,185,129,0.35)]"
                 onClick={() => {
                   const el = document.getElementById("catalog");
                   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -265,12 +271,12 @@ export default function ClientHome({ onSalonLoginClick }) {
               {[
                 ["1", "Избираш салон"],
                 ["2", "Избираш услуга"],
-                ["3", "Избираш свободен час"],
+                ["3", "Избираш дата и свободен час"],
                 ["4", "Потвърждаваш резервация"],
               ].map(([n, t]) => (
-                <div key={n} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div key={n} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-xl bg-emerald-500/15 border border-emerald-500/20 grid place-items-center font-semibold text-emerald-300">
+                    <div className="h-8 w-8 rounded-xl bg-emerald-500/15 border border-emerald-500/20 grid place-items-center font-semibold text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.25)]">
                       {n}
                     </div>
                     <div className="font-semibold">{t}</div>
@@ -322,7 +328,7 @@ export default function ClientHome({ onSalonLoginClick }) {
                   <div className="font-semibold text-lg">{p.name}</div>
                   <div className="mt-1 text-sm text-white/70">{p.phone ? `Тел: ${p.phone}` : " "}</div>
                 </div>
-                <div className="h-10 w-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/20 grid place-items-center font-bold text-emerald-300">
+                <div className="h-10 w-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/20 grid place-items-center font-bold text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.25)]">
                   →
                 </div>
               </div>
@@ -359,7 +365,7 @@ export default function ClientHome({ onSalonLoginClick }) {
 
               <div className="mt-4 grid gap-3 grid-cols-1 sm:grid-cols-2">
                 {services.map((s) => (
-                  <div key={s.id} className="rounded-3xl border border-white/10 bg-black/20 p-5">
+                  <div key={s.id} className="rounded-3xl border border-white/10 bg-white/5 p-5">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-semibold">{s.name}</div>
@@ -369,7 +375,7 @@ export default function ClientHome({ onSalonLoginClick }) {
                       </div>
 
                       <button
-                        className="rounded-2xl bg-emerald-500 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-600 transition"
+                        className="rounded-2xl bg-emerald-500 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-400 transition shadow-[0_0_25px_rgba(16,185,129,0.35)]"
                         onClick={() => startBooking(s)}
                       >
                         Резервирай
@@ -395,13 +401,14 @@ export default function ClientHome({ onSalonLoginClick }) {
             onClick={() => !submitting && setBookingOpen(false)}
           />
           <div className="absolute inset-0 flex items-end sm:items-center justify-center p-3 sm:p-6">
-            <div className="w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl border border-white/10 bg-neutral-950 shadow-xl overflow-hidden">
+            <div className="w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl border border-white/10 bg-[#050806] shadow-xl overflow-hidden">
               <div className="p-5 border-b border-white/10 flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm text-white/60">Резервация</div>
                   <div className="text-lg font-semibold mt-1">{selected.name}</div>
                   <div className="text-sm text-white/70 mt-1">
-                    {bookingService.name} · {Number(bookingService.price).toFixed(2)} лв · {(bookingService.duration_min ?? 60)} мин
+                    {bookingService.name} · {Number(bookingService.price).toFixed(2)} лв ·{" "}
+                    {(bookingService.duration_min ?? 60)} мин
                   </div>
                 </div>
 
@@ -417,14 +424,39 @@ export default function ClientHome({ onSalonLoginClick }) {
                 {error && <div className="text-sm text-red-300">{error}</div>}
 
                 <div className="grid sm:grid-cols-2 gap-3">
+                  {/* DATE with -/+ */}
                   <div>
                     <label className="block text-xs text-white/60 mb-1">Дата</label>
-                    <input
-                      type="date"
-                      value={bookingDate}
-                      onChange={(e) => setBookingDate(e.target.value)}
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
-                    />
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBookingDate((d) => addDaysISO(d, -1))}
+                        className="rounded-2xl px-3 py-3 bg-white/10 border border-white/10 hover:bg-white/15 transition text-sm"
+                      >
+                        −
+                      </button>
+
+                      <input
+                        type="date"
+                        value={bookingDate}
+                        min={todayISO()}
+                        onChange={(e) => setBookingDate(e.target.value)}
+                        className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => setBookingDate((d) => addDaysISO(d, +1))}
+                        className="rounded-2xl px-3 py-3 bg-white/10 border border-white/10 hover:bg-white/15 transition text-sm"
+                      >
+                        +
+                      </button>
+                    </div>
+
+                    <div className="mt-1 text-[11px] text-white/40">
+                      Ако date picker-ът е капризен на телефона — ползвай − / +.
+                    </div>
                   </div>
 
                   <div>
@@ -443,8 +475,8 @@ export default function ClientHome({ onSalonLoginClick }) {
                               className={
                                 "px-3 py-2 rounded-xl text-sm border transition " +
                                 (chosenSlot === iso
-                                  ? "bg-emerald-500 border-emerald-500 text-white"
-                                  : "bg-black/30 border-white/10 text-white/80 hover:bg-white/10")
+                                  ? "bg-emerald-500 border-emerald-500 text-white shadow-[0_0_25px_rgba(16,185,129,0.35)]"
+                                  : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10")
                               }
                             >
                               {formatBG(iso).split(" ").pop()}
@@ -480,7 +512,7 @@ export default function ClientHome({ onSalonLoginClick }) {
                 <button
                   onClick={submitBooking}
                   disabled={submitting || !chosenSlot}
-                  className="w-full rounded-2xl px-4 py-3 bg-emerald-500 text-white font-semibold hover:bg-emerald-600 transition disabled:opacity-60"
+                  className="w-full rounded-2xl px-4 py-3 bg-emerald-500 text-white font-semibold hover:bg-emerald-400 transition disabled:opacity-60 shadow-[0_0_25px_rgba(16,185,129,0.35)]"
                 >
                   {submitting
                     ? "Запазване…"
@@ -500,5 +532,4 @@ export default function ClientHome({ onSalonLoginClick }) {
     </div>
   );
 }
-
 
