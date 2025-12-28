@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 const API = "https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net";
 
+/* ------------------ helpers ------------------ */
 function formatBG(dt) {
   const d = new Date(dt);
   return new Intl.DateTimeFormat("bg-BG", {
@@ -27,6 +28,155 @@ function addDaysISO(iso, delta) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function addMonths(yyyymmdd, delta) {
+  const d = new Date(`${yyyymmdd}T00:00:00`);
+  d.setMonth(d.getMonth() + delta);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function toISODate(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function sameDayISO(a, b) {
+  return a === b;
+}
+
+function isPastISO(iso) {
+  // compare by date only in local time
+  const t = new Date(`${todayISO()}T00:00:00`).getTime();
+  const x = new Date(`${iso}T00:00:00`).getTime();
+  return x < t;
+}
+
+function monthLabelBG(yyyymmdd) {
+  const d = new Date(`${yyyymmdd}T00:00:00`);
+  return new Intl.DateTimeFormat("bg-BG", { month: "long", year: "numeric" }).format(d);
+}
+
+const WEEKDAYS_BG = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
+
+function CalendarMonth({ valueISO, minISO, onChange }) {
+  const [viewISO, setViewISO] = useState(valueISO || todayISO());
+
+  useEffect(() => {
+    // keep view month in sync when selected date changes (e.g. +/-)
+    if (valueISO) setViewISO(valueISO);
+  }, [valueISO]);
+
+  const viewDate = useMemo(() => new Date(`${viewISO}T00:00:00`), [viewISO]);
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth(); // 0-11
+
+  // We want Monday-first calendar
+  // JS: 0 Sun..6 Sat; convert to Monday-first index 0..6
+  function monFirstIndex(jsDay) {
+    // jsDay: 0=Sun => 6, 1=Mon => 0, ... 6=Sat => 5
+    return (jsDay + 6) % 7;
+  }
+
+  const firstOfMonth = new Date(year, month, 1);
+  const startOffset = monFirstIndex(firstOfMonth.getDay()); // 0..6 blanks before day1
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells = [];
+  // 6 weeks grid (42 cells) for stable layout
+  for (let i = 0; i < 42; i++) {
+    const dayNum = i - startOffset + 1; // 1..daysInMonth
+    if (dayNum < 1 || dayNum > daysInMonth) {
+      cells.push(null);
+    } else {
+      const d = new Date(year, month, dayNum);
+      cells.push(d);
+    }
+  }
+
+  const canPrev = true;
+  const canNext = true;
+
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setViewISO((v) => addMonths(v, -1))}
+          className="px-3 py-2 rounded-2xl bg-white/10 border border-white/10 hover:bg-white/15 transition text-sm"
+          aria-label="Предишен месец"
+          disabled={!canPrev}
+        >
+          ←
+        </button>
+
+        <div className="text-sm font-semibold capitalize">{monthLabelBG(viewISO)}</div>
+
+        <button
+          type="button"
+          onClick={() => setViewISO((v) => addMonths(v, +1))}
+          className="px-3 py-2 rounded-2xl bg-white/10 border border-white/10 hover:bg-white/15 transition text-sm"
+          aria-label="Следващ месец"
+          disabled={!canNext}
+        >
+          →
+        </button>
+      </div>
+
+      <div className="mt-3 grid grid-cols-7 gap-2 text-[11px] text-white/50">
+        {WEEKDAYS_BG.map((w) => (
+          <div key={w} className="text-center">
+            {w}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-2 grid grid-cols-7 gap-2">
+        {cells.map((d, idx) => {
+          if (!d) return <div key={idx} className="h-10" />;
+
+          const iso = toISODate(d);
+          const disabled = (minISO && iso < minISO) || isPastISO(iso);
+          const selected = valueISO && sameDayISO(iso, valueISO);
+          const isToday = sameDayISO(iso, todayISO());
+
+          return (
+            <button
+              key={idx}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(iso)}
+              className={[
+                "h-10 rounded-2xl border text-sm transition grid place-items-center",
+                disabled
+                  ? "border-white/5 bg-white/5 text-white/30 cursor-not-allowed"
+                  : "border-white/10 bg-black/10 hover:bg-white/10 text-white/85",
+                selected
+                  ? "bg-emerald-500 border-emerald-500 text-white shadow-[0_0_25px_rgba(16,185,129,0.35)]"
+                  : "",
+                !selected && isToday && !disabled
+                  ? "ring-2 ring-emerald-500/25"
+                  : "",
+              ].join(" ")}
+              title={iso}
+            >
+              {d.getDate()}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 text-xs text-white/50">
+        Избрана дата: <span className="text-white/80 font-medium">{valueISO}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------ main ------------------ */
 export default function ClientHome({ onSalonLoginClick }) {
   const [q, setQ] = useState("");
 
@@ -171,20 +321,19 @@ export default function ClientHome({ onSalonLoginClick }) {
         body: JSON.stringify({
           providerId: selected.id,
           serviceId: bookingService.id,
-          startAt: chosenSlot, // ISO string
+          startAt: chosenSlot,
           customerName: customerName.trim(),
           customerPhone: customerPhone.trim(),
         }),
       });
 
       const data = await res.json().catch(() => ({}));
-
       if (!res.ok) throw new Error(data.message || "Неуспешна резервация");
 
       showToast("✅ Резервацията е създадена!");
       setBookingOpen(false);
 
-      // refresh slots after booking (за да изчезне часът)
+      // refresh slots after booking
       await loadSlots(bookingDate, bookingService);
     } catch (e) {
       setError(e.message);
@@ -194,7 +343,14 @@ export default function ClientHome({ onSalonLoginClick }) {
   }
 
   return (
-    <div className="min-h-screen text-white bg-gradient-to-b from-[#050806] via-[#0a120f] to-[#050806]">
+    <div className="min-h-screen text-white bg-gradient-to-b from-[#0b1411] via-[#0f1f18] to-[#0b1411]">
+      {/* soft glow */}
+      <div className="pointer-events-none fixed inset-0 opacity-60">
+        <div className="absolute -top-24 left-1/2 -translate-x-1/2 h-64 w-[700px] blur-3xl rounded-full bg-emerald-500/20" />
+        <div className="absolute top-52 -left-40 h-72 w-72 blur-3xl rounded-full bg-emerald-400/15" />
+        <div className="absolute bottom-[-120px] right-[-120px] h-96 w-96 blur-3xl rounded-full bg-emerald-500/15" />
+      </div>
+
       {/* toast */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50">
@@ -205,7 +361,7 @@ export default function ClientHome({ onSalonLoginClick }) {
       )}
 
       {/* Top bar */}
-      <header className="border-b border-white/10 bg-black/20 backdrop-blur">
+      <header className="relative z-10 border-b border-white/10 bg-black/10 backdrop-blur">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div>
             <div className="text-lg font-semibold tracking-tight">LOTTI</div>
@@ -222,7 +378,7 @@ export default function ClientHome({ onSalonLoginClick }) {
       </header>
 
       {/* Hero */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-10 pb-6">
+      <section className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 pt-10 pb-6">
         <div className="grid gap-6 lg:grid-cols-2 items-center">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/10 px-3 py-1 text-xs text-white/80">
@@ -271,7 +427,7 @@ export default function ClientHome({ onSalonLoginClick }) {
               {[
                 ["1", "Избираш салон"],
                 ["2", "Избираш услуга"],
-                ["3", "Избираш дата и свободен час"],
+                ["3", "Избираш дата от календара"],
                 ["4", "Потвърждаваш резервация"],
               ].map(([n, t]) => (
                 <div key={n} className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -292,7 +448,7 @@ export default function ClientHome({ onSalonLoginClick }) {
       </section>
 
       {/* Catalog */}
-      <section id="catalog" className="max-w-6xl mx-auto px-4 sm:px-6 pb-12">
+      <section id="catalog" className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 pb-12">
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
             <h2 className="text-xl font-semibold">Салони</h2>
@@ -397,11 +553,11 @@ export default function ClientHome({ onSalonLoginClick }) {
       {bookingOpen && bookingService && selected && (
         <div className="fixed inset-0 z-50">
           <div
-            className="absolute inset-0 bg-black/70"
+            className="absolute inset-0 bg-black/60"
             onClick={() => !submitting && setBookingOpen(false)}
           />
           <div className="absolute inset-0 flex items-end sm:items-center justify-center p-3 sm:p-6">
-            <div className="w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl border border-white/10 bg-[#050806] shadow-xl overflow-hidden">
+            <div className="w-full sm:max-w-3xl rounded-t-3xl sm:rounded-3xl border border-white/10 bg-[#0b1411] shadow-xl overflow-hidden">
               <div className="p-5 border-b border-white/10 flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm text-white/60">Резервация</div>
@@ -423,20 +579,38 @@ export default function ClientHome({ onSalonLoginClick }) {
               <div className="p-5 grid gap-4">
                 {error && <div className="text-sm text-red-300">{error}</div>}
 
-                <div className="grid sm:grid-cols-2 gap-3">
-                  {/* DATE with -/+ */}
+                <div className="grid lg:grid-cols-2 gap-4">
+                  {/* Calendar */}
                   <div>
-                    <label className="block text-xs text-white/60 mb-1">Дата</label>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="text-sm font-semibold">Избери дата</div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setBookingDate((d) => addDaysISO(d, -1))}
+                          className="px-3 py-2 rounded-2xl bg-white/10 border border-white/10 hover:bg-white/15 transition text-sm"
+                        >
+                          − ден
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBookingDate((d) => addDaysISO(d, +1))}
+                          className="px-3 py-2 rounded-2xl bg-white/10 border border-white/10 hover:bg-white/15 transition text-sm"
+                        >
+                          + ден
+                        </button>
+                      </div>
+                    </div>
 
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setBookingDate((d) => addDaysISO(d, -1))}
-                        className="rounded-2xl px-3 py-3 bg-white/10 border border-white/10 hover:bg-white/15 transition text-sm"
-                      >
-                        −
-                      </button>
+                    <CalendarMonth
+                      valueISO={bookingDate}
+                      minISO={todayISO()}
+                      onChange={(iso) => setBookingDate(iso)}
+                    />
 
+                    {/* optional date input for power users */}
+                    <div className="mt-3">
+                      <label className="block text-xs text-white/60 mb-1">Или избери от date picker</label>
                       <input
                         type="date"
                         value={bookingDate}
@@ -444,40 +618,30 @@ export default function ClientHome({ onSalonLoginClick }) {
                         onChange={(e) => setBookingDate(e.target.value)}
                         className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
                       />
-
-                      <button
-                        type="button"
-                        onClick={() => setBookingDate((d) => addDaysISO(d, +1))}
-                        className="rounded-2xl px-3 py-3 bg-white/10 border border-white/10 hover:bg-white/15 transition text-sm"
-                      >
-                        +
-                      </button>
-                    </div>
-
-                    <div className="mt-1 text-[11px] text-white/40">
-                      Ако date picker-ът е капризен на телефона — ползвай − / +.
                     </div>
                   </div>
 
+                  {/* Slots */}
                   <div>
-                    <label className="block text-xs text-white/60 mb-1">Свободни часове</label>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3 min-h-[52px]">
+                    <div className="text-sm font-semibold mb-2">Свободни часове</div>
+                    <div className="rounded-3xl border border-white/10 bg-white/5 p-4 min-h-[180px]">
                       {loadingSlots ? (
                         <div className="text-sm text-white/70">Зареждане…</div>
                       ) : slots.length === 0 ? (
-                        <div className="text-sm text-white/70">Няма свободни часове.</div>
+                        <div className="text-sm text-white/70">Няма свободни часове за тази дата.</div>
                       ) : (
                         <div className="flex flex-wrap gap-2">
                           {slots.map((iso) => (
                             <button
                               key={iso}
                               onClick={() => setChosenSlot(iso)}
-                              className={
-                                "px-3 py-2 rounded-xl text-sm border transition " +
-                                (chosenSlot === iso
+                              className={[
+                                "px-3 py-2 rounded-2xl text-sm border transition",
+                                chosenSlot === iso
                                   ? "bg-emerald-500 border-emerald-500 text-white shadow-[0_0_25px_rgba(16,185,129,0.35)]"
-                                  : "bg-white/5 border-white/10 text-white/80 hover:bg-white/10")
-                              }
+                                  : "bg-black/10 border-white/10 text-white/80 hover:bg-white/10",
+                              ].join(" ")}
+                              title={formatBG(iso)}
                             >
                               {formatBG(iso).split(" ").pop()}
                             </button>
@@ -485,44 +649,44 @@ export default function ClientHome({ onSalonLoginClick }) {
                         </div>
                       )}
                     </div>
-                  </div>
-                </div>
 
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-white/60 mb-1">Име</label>
-                    <input
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
-                      placeholder="Иван Иванов"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-white/60 mb-1">Телефон</label>
-                    <input
-                      value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
-                      placeholder="0888 123 456"
-                    />
-                  </div>
-                </div>
+                    <div className="mt-4 grid sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-white/60 mb-1">Име</label>
+                        <input
+                          value={customerName}
+                          onChange={(e) => setCustomerName(e.target.value)}
+                          className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
+                          placeholder="Иван Иванов"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/60 mb-1">Телефон</label>
+                        <input
+                          value={customerPhone}
+                          onChange={(e) => setCustomerPhone(e.target.value)}
+                          className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
+                          placeholder="0888 123 456"
+                        />
+                      </div>
+                    </div>
 
-                <button
-                  onClick={submitBooking}
-                  disabled={submitting || !chosenSlot}
-                  className="w-full rounded-2xl px-4 py-3 bg-emerald-500 text-white font-semibold hover:bg-emerald-400 transition disabled:opacity-60 shadow-[0_0_25px_rgba(16,185,129,0.35)]"
-                >
-                  {submitting
-                    ? "Запазване…"
-                    : chosenSlot
-                    ? `Потвърди за ${formatBG(chosenSlot)}`
-                    : "Избери час"}
-                </button>
+                    <button
+                      onClick={submitBooking}
+                      disabled={submitting || !chosenSlot}
+                      className="mt-4 w-full rounded-2xl px-4 py-3 bg-emerald-500 text-white font-semibold hover:bg-emerald-400 transition disabled:opacity-60 shadow-[0_0_25px_rgba(16,185,129,0.35)]"
+                    >
+                      {submitting
+                        ? "Запазване…"
+                        : chosenSlot
+                        ? `Потвърди за ${formatBG(chosenSlot)}`
+                        : "Избери час"}
+                    </button>
 
-                <div className="text-xs text-white/50">
-                  След потвърждение резервацията се записва в системата на салона.
+                    <div className="mt-2 text-xs text-white/50">
+                      След потвърждение резервацията се записва в системата на салона.
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -532,4 +696,5 @@ export default function ClientHome({ onSalonLoginClick }) {
     </div>
   );
 }
+
 
