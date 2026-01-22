@@ -1,11 +1,16 @@
-const API_BASE = "https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net";
+const API_BASE =
+  import.meta?.env?.VITE_API_BASE ||
+  "https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net";
 
 export async function api(path, { method = "GET", body, auth = false } = {}) {
   const headers = { "Content-Type": "application/json" };
 
   if (auth) {
     const token = localStorage.getItem("token");
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (!token) {
+      throw new Error("Няма активна сесия. Моля, влез отново.");
+    }
+    headers.Authorization = `Bearer ${token}`;
   }
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -17,7 +22,11 @@ export async function api(path, { method = "GET", body, auth = false } = {}) {
   // ако има HTML/празен отговор, да не гърми
   const text = await res.text();
   let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { raw: text };
+  }
 
   if (!res.ok) {
     const msg = data?.message || `HTTP ${res.status}`;

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
+const API_BASE = "https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net";
+
 function formatBG(dt) {
   const d = new Date(dt);
   return new Intl.DateTimeFormat("bg-BG", {
@@ -23,7 +25,18 @@ function roleLabel(role) {
   return map[role] || role || "—";
 }
 
-function Dashboard({ token, logout }) {
+function statusLabel(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "confirmed") return "Потвърдена";
+  if (s === "cancelled") return "Отменена";
+  return status || "—";
+}
+
+function isCancelled(status) {
+  return String(status || "").toLowerCase() === "cancelled";
+}
+
+export default function Dashboard({ token, logout }) {
   const [tab, setTab] = useState("bookings"); // "bookings" | "services" | "staff"
 
   const [services, setServices] = useState([]);
@@ -46,10 +59,17 @@ function Dashboard({ token, logout }) {
   const [loadingServices, setLoadingServices] = useState(false);
   const [loadingBookings, setLoadingBookings] = useState(false);
   const [loadingStaff, setLoadingStaff] = useState(false);
+
   const [error, setError] = useState(null);
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+
+  // “финес”: не блокираме целия таб, а само реда, който се отменя
+  const [busyBookingId, setBusyBookingId] = useState(null);
+
+  // “финес”: toggle за показване на отменени
+  const [showCancelled, setShowCancelled] = useState(false);
 
   const apiHeaders = useMemo(
     () => ({
@@ -64,23 +84,27 @@ function Dashboard({ token, logout }) {
     if (from) p.set("from", from);
     if (to) p.set("to", to);
     const qs = p.toString();
-    return `https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/my/bookings${
-      qs ? `?${qs}` : ""
-    }`;
+    return `${API_BASE}/my/bookings${qs ? `?${qs}` : ""}`;
   }, [from, to]);
+
+  async function readJsonSafe(res) {
+    try {
+      return await res.json();
+    } catch {
+      return {};
+    }
+  }
 
   async function loadServices() {
     setLoadingServices(true);
     setError(null);
     try {
-      const res = await fetch(
-        "https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/my/services",
-        { headers: apiHeaders }
-      );
-      const data = await res.json();
+      const res = await fetch(`${API_BASE}/my/services`, { headers: apiHeaders });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(data?.message || "Грешка при зареждане на услуги");
       setServices(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e.message);
+      setError(e.message || "Грешка");
       setServices([]);
     } finally {
       setLoadingServices(false);
@@ -92,10 +116,11 @@ function Dashboard({ token, logout }) {
     setError(null);
     try {
       const res = await fetch(bookingsUrl, { headers: apiHeaders });
-      const data = await res.json();
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(data?.message || "Грешка при зареждане на резервации");
       setBookings(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e.message);
+      setError(e.message || "Грешка");
       setBookings([]);
     } finally {
       setLoadingBookings(false);
@@ -106,14 +131,12 @@ function Dashboard({ token, logout }) {
     setLoadingStaff(true);
     setError(null);
     try {
-      const res = await fetch(
-        "https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/my/staff",
-        { headers: apiHeaders }
-      );
-      const data = await res.json();
+      const res = await fetch(`${API_BASE}/my/staff`, { headers: apiHeaders });
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(data?.message || "Грешка при зареждане на екип");
       setStaff(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e.message);
+      setError(e.message || "Грешка");
       setStaff([]);
     } finally {
       setLoadingStaff(false);
@@ -145,29 +168,26 @@ function Dashboard({ token, logout }) {
 
     try {
       const payload = {
-        name: newService.name,
+        name: String(newService.name || "").trim(),
         price: Number(newService.price),
         duration_min: Number(newService.duration_min || 60),
         staff_id: newService.staff_id === "" ? null : Number(newService.staff_id),
       };
 
-      const res = await fetch(
-        "https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/my/services",
-        {
-          method: "POST",
-          headers: apiHeaders,
-          body: JSON.stringify(payload),
-        }
-      );
+      const res = await fetch(`${API_BASE}/my/services`, {
+        method: "POST",
+        headers: apiHeaders,
+        body: JSON.stringify(payload),
+      });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Грешка при добавяне на услуга");
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(data?.message || "Грешка при добавяне на услуга");
 
       setNewService({ name: "", price: "", duration_min: 60, staff_id: "" });
       await loadServices();
       setTab("services");
     } catch (e) {
-      setError(e.message);
+      setError(e.message || "Грешка");
     }
   }
 
@@ -181,33 +201,76 @@ function Dashboard({ token, logout }) {
     }
 
     try {
-      const res = await fetch(
-        "https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net/my/staff",
-        {
-          method: "POST",
-          headers: apiHeaders,
-          body: JSON.stringify({
-            full_name: newStaff.full_name,
-            role: newStaff.role,
-            phone: newStaff.phone || null,
-          }),
-        }
-      );
+      const res = await fetch(`${API_BASE}/my/staff`, {
+        method: "POST",
+        headers: apiHeaders,
+        body: JSON.stringify({
+          full_name: String(newStaff.full_name || "").trim(),
+          role: newStaff.role,
+          phone: newStaff.phone ? String(newStaff.phone).trim() : null,
+        }),
+      });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Грешка при добавяне на специалист");
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(data?.message || "Грешка при добавяне на специалист");
 
       setNewStaff({ full_name: "", role: "manicurist", phone: "" });
       await loadStaff();
       setTab("staff");
     } catch (e) {
-      setError(e.message);
+      setError(e.message || "Грешка");
     }
   }
+
+  async function cancelBooking(bookingId) {
+    if (busyBookingId != null) return;
+
+    const ok = confirm("Сигурна ли си, че искаш да отмениш тази резервация?");
+    if (!ok) return;
+
+    const reason = prompt("Причина за отказ (по желание):", "");
+    if (reason === null) return;
+
+    setBusyBookingId(bookingId);
+    setError(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/my/bookings/${bookingId}/cancel`, {
+        method: "PATCH",
+        headers: apiHeaders,
+        body: JSON.stringify({ reason }),
+      });
+
+      const data = await readJsonSafe(res);
+      if (!res.ok) throw new Error(data?.message || "Неуспешно отказване");
+
+      // “финес”: оптимистично обновяване + после реално reload
+      setBookings((prev) =>
+        prev.map((b) =>
+          b.id === bookingId
+            ? { ...b, status: "cancelled", cancelled_reason: reason || null }
+            : b
+        )
+      );
+
+      // взимаме истината от DB
+      await loadBookings();
+    } catch (e) {
+      setError(e.message || "Грешка");
+    } finally {
+      setBusyBookingId(null);
+    }
+  }
+
+  const visibleBookings = useMemo(() => {
+    if (showCancelled) return bookings;
+    return bookings.filter((b) => !isCancelled(b.status));
+  }, [bookings, showCancelled]);
 
   return (
     <div className="min-h-screen bg-neutral-50">
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
+        {/* HEADER */}
         <div
           style={{
             display: "flex",
@@ -237,6 +300,7 @@ function Dashboard({ token, logout }) {
           </button>
         </div>
 
+        {/* TABS */}
         <div style={{ display: "flex", gap: 8, marginTop: 14, marginBottom: 14, flexWrap: "wrap" }}>
           <button
             onClick={() => setTab("bookings")}
@@ -281,6 +345,7 @@ function Dashboard({ token, logout }) {
           </button>
         </div>
 
+        {/* ERROR */}
         {error && (
           <div
             style={{
@@ -304,50 +369,75 @@ function Dashboard({ token, logout }) {
                 borderBottom: "1px solid #eee",
                 display: "flex",
                 justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
               }}
             >
               <div style={{ fontWeight: 600 }}>Резервации</div>
               <div style={{ opacity: 0.7 }}>
-                {loadingBookings ? "Зареждане..." : `${bookings.length} бр.`}
+                {loadingBookings ? "Зареждане..." : `${visibleBookings.length} бр.`}
               </div>
             </div>
 
-            <div style={{ padding: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
-                  От дата
-                </label>
-                <input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
-                  До дата
-                </label>
-                <input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
-                />
+            <div
+              style={{
+                padding: 12,
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+                alignItems: "end",
+                justifyContent: "space-between",
+              }}
+            >
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
+                    От дата
+                  </label>
+                  <input
+                    type="date"
+                    value={from}
+                    onChange={(e) => setFrom(e.target.value)}
+                    style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
+                    До дата
+                  </label>
+                  <input
+                    type="date"
+                    value={to}
+                    onChange={(e) => setTo(e.target.value)}
+                    style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                  />
+                </div>
+
+                <button
+                  onClick={loadBookings}
+                  disabled={loadingBookings || busyBookingId != null}
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 12,
+                    border: "1px solid #ddd",
+                    background: "white",
+                    cursor: loadingBookings || busyBookingId != null ? "not-allowed" : "pointer",
+                    opacity: loadingBookings || busyBookingId != null ? 0.7 : 1,
+                  }}
+                >
+                  Обнови
+                </button>
               </div>
 
-              <button
-                onClick={loadBookings}
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: 12,
-                  border: "1px solid #ddd",
-                  background: "white",
-                  cursor: "pointer",
-                }}
-              >
-                Обнови
-              </button>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={showCancelled}
+                  onChange={(e) => setShowCancelled(e.target.checked)}
+                />
+                <span style={{ fontSize: 13, opacity: 0.8 }}>Покажи отменените</span>
+              </label>
             </div>
 
             <div style={{ overflowX: "auto" }}>
@@ -359,33 +449,75 @@ function Dashboard({ token, logout }) {
                     <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Клиент</th>
                     <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Телефон</th>
                     <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Статус</th>
+                    <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Действия</th>
                   </tr>
                 </thead>
+
                 <tbody>
-                  {!loadingBookings && bookings.length === 0 && (
+                  {!loadingBookings && visibleBookings.length === 0 && (
                     <tr>
-                      <td colSpan="5" style={{ padding: 18, opacity: 0.7 }}>
+                      <td colSpan="6" style={{ padding: 18, opacity: 0.7 }}>
                         Няма резервации за избрания период.
                       </td>
                     </tr>
                   )}
 
-                  {bookings.map((b) => (
-                    <tr key={b.id}>
-                      <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>
-                        {formatBG(b.start_at)}
-                      </td>
-                      <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>
-                        <div style={{ fontWeight: 600 }}>{b.service_name}</div>
-                        <div style={{ opacity: 0.7, fontSize: 12 }}>
-                          {b.duration_min} мин · {Number(b.price).toFixed(2)} лв
-                        </div>
-                      </td>
-                      <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>{b.customer_name}</td>
-                      <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>{b.customer_phone}</td>
-                      <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>{b.status}</td>
-                    </tr>
-                  ))}
+                  {visibleBookings.map((b) => {
+                    const cancelled = isCancelled(b.status);
+                    const isBusy = busyBookingId === b.id;
+
+                    return (
+                      <tr key={b.id} style={{ opacity: cancelled ? 0.65 : 1 }}>
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2", whiteSpace: "nowrap" }}>
+                          {formatBG(b.start_at)}
+                        </td>
+
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>
+                          <div style={{ fontWeight: 600 }}>{b.service_name}</div>
+                          <div style={{ opacity: 0.7, fontSize: 12 }}>
+                            {b.duration_min} мин · {Number(b.price).toFixed(2)} лв
+                          </div>
+                        </td>
+
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>{b.customer_name}</td>
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>{b.customer_phone}</td>
+
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "4px 8px",
+                              borderRadius: 999,
+                              border: "1px solid #ddd",
+                              background: cancelled ? "#f7f7f7" : "white",
+                              fontSize: 12,
+                            }}
+                          >
+                            {statusLabel(b.status)}
+                          </span>
+                        </td>
+
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>
+                          <button
+                            onClick={() => cancelBooking(b.id)}
+                            disabled={cancelled || loadingBookings || (busyBookingId != null && !isBusy)}
+                            style={{
+                              border: "1px solid #ddd",
+                              padding: "8px 10px",
+                              borderRadius: 12,
+                              background: "white",
+                              cursor: cancelled ? "not-allowed" : "pointer",
+                              opacity: cancelled ? 0.5 : 1,
+                              whiteSpace: "nowrap",
+                            }}
+                            title={cancelled ? "Вече е отменена" : "Отмени резервацията"}
+                          >
+                            {isBusy ? "Отказвам..." : cancelled ? "Отменена" : "Отмени"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -519,9 +651,7 @@ function Dashboard({ token, logout }) {
                       <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>
                         {Number(s.price).toFixed(2)} лв
                       </td>
-                      <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>
-                        {(s.duration_min ?? 60)} мин
-                      </td>
+                      <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>{(s.duration_min ?? 60)} мин</td>
                       <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>
                         {s.staff_name ? (
                           <span>
@@ -659,10 +789,9 @@ function Dashboard({ token, logout }) {
             </div>
           </div>
         )}
-
       </div>
     </div>
   );
 }
 
-export default Dashboard;
+
