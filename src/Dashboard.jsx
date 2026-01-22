@@ -1,6 +1,4 @@
-// src/components/Dashboard.jsx
 import { useEffect, useMemo, useState } from "react";
-import CalendarMonth from "./CalendarMonth";
 
 function formatBG(dt) {
   const d = new Date(dt);
@@ -10,18 +8,21 @@ function formatBG(dt) {
   }).format(d);
 }
 
-function ymdFromISO(dt) {
-  // stable: YYYY-MM-DD
-  const d = new Date(dt);
-  return d.toISOString().slice(0, 10);
-}
-
-function ymdTodayLocal() {
-  const d = new Date();
+function toDateInput(d) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+function toDateTimeLocalValue(dt) {
+  const d = new Date(dt);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
 function roleLabel(role) {
@@ -39,66 +40,114 @@ function roleLabel(role) {
   return map[role] || role || "—";
 }
 
-/**
- * NOTE:
- * - Frontend expects backend endpoints:
- *   GET    /my/bookings?from=YYYY-MM-DD&to=YYYY-MM-DD
- *   PATCH  /my/bookings/:id/cancel
- *   GET    /my/services
- *   POST   /my/services
- *   GET    /my/staff
- *   POST   /my/staff
- *
- * For "create booking from dashboard":
- * - Recommended endpoint (auth): POST /my/bookings
- *   Body: { serviceId, startAt, endAt, customerName, customerPhone }
- *   (You asked endAt to be entered manually.)
- */
+function monthLabel(d) {
+  return new Intl.DateTimeFormat("bg-BG", { month: "long", year: "numeric" }).format(d);
+}
+
+function startOfMonth(d) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function endOfMonth(d) {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0);
+}
+
+function addMonths(d, n) {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1);
+}
+
+function sameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function Modal({ title, children, onClose }) {
+  return (
+    <div
+      onMouseDown={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.35)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        zIndex: 9999,
+      }}
+    >
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{
+          width: "min(720px, 100%)",
+          background: "white",
+          borderRadius: 16,
+          border: "1px solid #eee",
+          overflow: "hidden",
+          boxShadow: "0 15px 45px rgba(0,0,0,0.18)",
+        }}
+      >
+        <div
+          style={{
+            padding: 14,
+            borderBottom: "1px solid #eee",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <div style={{ fontWeight: 700 }}>{title}</div>
+          <button
+            onClick={onClose}
+            style={{
+              border: "1px solid #ddd",
+              background: "white",
+              borderRadius: 12,
+              padding: "8px 10px",
+              cursor: "pointer",
+            }}
+          >
+            Затвори
+          </button>
+        </div>
+        <div style={{ padding: 14 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div style={{ minWidth: 220 }}>
+      <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
 export default function Dashboard({ token, logout }) {
   const API_BASE = "https://lotti-etcgare8gzdrhfes.italynorth-01.azurewebsites.net";
 
-  const [tab, setTab] = useState("bookings"); // "bookings" | "services" | "staff"
+  const [tab, setTab] = useState("bookings"); // bookings | services | staff
 
   const [services, setServices] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [staff, setStaff] = useState([]);
 
-  const [newService, setNewService] = useState({
-    name: "",
-    price: "",
-    duration_min: 60,
-    staff_id: "",
-  });
-
-  const [newStaff, setNewStaff] = useState({
-    full_name: "",
-    role: "manicurist",
-    phone: "",
-  });
-
-  // global UI state
-  const [error, setError] = useState(null);
   const [loadingServices, setLoadingServices] = useState(false);
   const [loadingBookings, setLoadingBookings] = useState(false);
   const [loadingStaff, setLoadingStaff] = useState(false);
 
-  // bookings controls
-  const [monthDate, setMonthDate] = useState(() => new Date());
-  const [selectedDay, setSelectedDay] = useState(() => ymdTodayLocal());
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
 
-  const [busyBookingId, setBusyBookingId] = useState(null);
+  // Calendar state
+  const [month, setMonth] = useState(() => new Date());
+  const [selectedDay, setSelectedDay] = useState(() => new Date());
 
-  // create booking modal (dashboard)
-  const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [createForm, setCreateForm] = useState(() => ({
-    serviceId: "",
-    customerName: "",
-    customerPhone: "",
-    date: ymdTodayLocal(), // YYYY-MM-DD
-    startTime: "10:00", // HH:MM
-    endTime: "11:00", // HH:MM (manual)
-  }));
+  // Filters derived from selected day (list shows that day only)
+  const from = useMemo(() => toDateInput(selectedDay), [selectedDay]);
+  const to = useMemo(() => toDateInput(selectedDay), [selectedDay]);
 
   const apiHeaders = useMemo(
     () => ({
@@ -108,38 +157,20 @@ export default function Dashboard({ token, logout }) {
     [token]
   );
 
-  function monthRange(date) {
-    const from = new Date(date.getFullYear(), date.getMonth(), 1);
-    const to = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-    const fromYMD = from.toISOString().slice(0, 10);
-    const toYMD = to.toISOString().slice(0, 10);
-    return { fromYMD, toYMD };
-  }
-
-  const { fromYMD, toYMD } = useMemo(() => monthRange(monthDate), [monthDate]);
-
   const bookingsUrl = useMemo(() => {
     const p = new URLSearchParams();
-    p.set("from", fromYMD);
-    p.set("to", toYMD);
-    return `${API_BASE}/my/bookings?${p.toString()}`;
-  }, [API_BASE, fromYMD, toYMD]);
-
-  async function safeJson(res) {
-    const text = await res.text();
-    try {
-      return text ? JSON.parse(text) : null;
-    } catch {
-      return { raw: text };
-    }
-  }
+    if (from) p.set("from", from);
+    if (to) p.set("to", to);
+    const qs = p.toString();
+    return `${API_BASE}/my/bookings${qs ? `?${qs}` : ""}`;
+  }, [API_BASE, from, to]);
 
   async function loadServices() {
     setLoadingServices(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/my/services`, { headers: apiHeaders });
-      const data = await safeJson(res);
+      const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Грешка при зареждане на услуги");
       setServices(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -155,7 +186,7 @@ export default function Dashboard({ token, logout }) {
     setError(null);
     try {
       const res = await fetch(bookingsUrl, { headers: apiHeaders });
-      const data = await safeJson(res);
+      const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Грешка при зареждане на резервации");
       setBookings(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -171,7 +202,7 @@ export default function Dashboard({ token, logout }) {
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/my/staff`, { headers: apiHeaders });
-      const data = await safeJson(res);
+      const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Грешка при зареждане на екип");
       setStaff(Array.isArray(data) ? data : []);
     } catch (e) {
@@ -182,37 +213,162 @@ export default function Dashboard({ token, logout }) {
     }
   }
 
-  // initial load
   useEffect(() => {
     loadServices();
-    loadBookings();
     loadStaff();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // reload bookings when month changes
   useEffect(() => {
     loadBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingsUrl]);
 
-  // keep create form date in sync with selectedDay (when switching days)
-  useEffect(() => {
-    setCreateForm((s) => ({ ...s, date: selectedDay || ymdTodayLocal() }));
-  }, [selectedDay]);
+  // ---------- BOOKINGS: create/edit/cancel ----------
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRow, setEditRow] = useState(null);
+
+  const [createForm, setCreateForm] = useState(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 0, 0);
+    const end = new Date(start.getTime() + 60 * 60000);
+    return {
+      serviceId: "",
+      customerName: "",
+      customerPhone: "",
+      startAt: toDateTimeLocalValue(start),
+      endAt: toDateTimeLocalValue(end),
+    };
+  });
+
+  function openCreateForDay(d) {
+    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 10, 0, 0);
+    const end = new Date(start.getTime() + 60 * 60000);
+    setCreateForm((f) => ({
+      ...f,
+      startAt: toDateTimeLocalValue(start),
+      endAt: toDateTimeLocalValue(end),
+    }));
+    setCreateOpen(true);
+  }
+
+  async function createBooking() {
+    setBusy(true);
+    setError(null);
+    try {
+      if (!createForm.serviceId) throw new Error("Моля избери услуга.");
+      if (!createForm.customerName.trim()) throw new Error("Моля въведи клиент.");
+      if (!createForm.customerPhone.trim()) throw new Error("Моля въведи телефон.");
+
+      const res = await fetch(`${API_BASE}/my/bookings`, {
+        method: "POST",
+        headers: apiHeaders,
+        body: JSON.stringify({
+          serviceId: Number(createForm.serviceId),
+          customerName: createForm.customerName.trim(),
+          customerPhone: createForm.customerPhone.trim(),
+          startAt: new Date(createForm.startAt).toISOString(),
+          endAt: new Date(createForm.endAt).toISOString(),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Неуспешно записване");
+
+      setCreateOpen(false);
+      await loadBookings();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelBooking(id) {
+    const reason = prompt("Причина за отказ (по желание):", "");
+    if (reason === null) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/my/bookings/${id}/cancel`, {
+        method: "PATCH",
+        headers: apiHeaders,
+        body: JSON.stringify({ reason }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Неуспешно отказване");
+
+      await loadBookings();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openEditBooking(row) {
+    setEditRow(row);
+    setEditOpen(true);
+  }
+
+  async function saveEditBooking() {
+    if (!editRow) return;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/my/bookings/${editRow.id}`, {
+        method: "PATCH",
+        headers: apiHeaders,
+        body: JSON.stringify({
+          serviceId: Number(editRow.service_id),
+          customerName: editRow.customer_name,
+          customerPhone: editRow.customer_phone,
+          startAt: new Date(editRow.start_at).toISOString(),
+          endAt: new Date(editRow.end_at).toISOString(),
+          status: editRow.status,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Неуспешно обновяване");
+
+      setEditOpen(false);
+      setEditRow(null);
+      await loadBookings();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ---------- SERVICES: add/edit/delete ----------
+  const [newService, setNewService] = useState({
+    name: "",
+    price: "",
+    duration_min: 60,
+    staff_id: "",
+  });
+
+  const [editServiceOpen, setEditServiceOpen] = useState(false);
+  const [editService, setEditService] = useState(null);
 
   async function addService(e) {
     e.preventDefault();
     setError(null);
-
-    if (!newService.name || newService.price === "") {
-      setError("Моля, въведи име и цена.");
-      return;
-    }
+    setBusy(true);
 
     try {
+      if (!newService.name.trim() || newService.price === "") {
+        throw new Error("Моля, въведи име и цена.");
+      }
+
       const payload = {
-        name: newService.name,
+        name: newService.name.trim(),
         price: Number(newService.price),
         duration_min: Number(newService.duration_min || 60),
         staff_id: newService.staff_id === "" ? null : Number(newService.staff_id),
@@ -224,168 +380,124 @@ export default function Dashboard({ token, logout }) {
         body: JSON.stringify(payload),
       });
 
-      const data = await safeJson(res);
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "Грешка при добавяне на услуга");
 
       setNewService({ name: "", price: "", duration_min: 60, staff_id: "" });
       await loadServices();
-      setTab("services");
     } catch (e2) {
       setError(e2.message);
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function addStaff(e) {
-    e.preventDefault();
+  function openEditServiceRow(s) {
+    setEditService({
+      id: s.id,
+      name: s.name,
+      price: String(s.price ?? ""),
+      duration_min: s.duration_min ?? 60,
+      staff_id: s.staff_id ?? "",
+    });
+    setEditServiceOpen(true);
+  }
+
+  async function saveEditService() {
+    if (!editService) return;
+    setBusy(true);
     setError(null);
 
-    if (!newStaff.full_name || !newStaff.role) {
-      setError("Моля, въведи име и роля.");
-      return;
-    }
-
     try {
-      const res = await fetch(`${API_BASE}/my/staff`, {
-        method: "POST",
+      if (!editService.name.trim() || editService.price === "") {
+        throw new Error("Моля, въведи име и цена.");
+      }
+
+      const res = await fetch(`${API_BASE}/my/services/${editService.id}`, {
+        method: "PUT",
         headers: apiHeaders,
         body: JSON.stringify({
-          full_name: newStaff.full_name,
-          role: newStaff.role,
-          phone: newStaff.phone || null,
+          name: editService.name.trim(),
+          price: Number(editService.price),
+          duration_min: Number(editService.duration_min || 60),
+          staff_id: editService.staff_id === "" ? null : Number(editService.staff_id),
         }),
       });
 
-      const data = await safeJson(res);
-      if (!res.ok) throw new Error(data?.message || "Грешка при добавяне на специалист");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Неуспешна редакция");
 
-      setNewStaff({ full_name: "", role: "manicurist", phone: "" });
-      await loadStaff();
-      setTab("staff");
-    } catch (e2) {
-      setError(e2.message);
-    }
-  }
-
-  async function cancelBooking(bookingId) {
-    const reason = prompt("Причина за отказ (по желание):", "");
-    if (reason === null) return;
-
-    setBusyBookingId(bookingId);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/my/bookings/${bookingId}/cancel`, {
-        method: "PATCH",
-        headers: apiHeaders,
-        body: JSON.stringify({ reason }),
-      });
-
-      const data = await safeJson(res);
-      if (!res.ok) throw new Error(data?.message || "Неуспешно отказване");
-
-      await loadBookings();
+      setEditServiceOpen(false);
+      setEditService(null);
+      await loadServices();
     } catch (e) {
       setError(e.message);
     } finally {
-      setBusyBookingId(null);
+      setBusy(false);
     }
   }
 
-  function openCreateBooking() {
+  async function deleteService(id) {
+    if (!confirm("Сигурна ли си, че искаш да изтриеш тази услуга?")) return;
+
+    setBusy(true);
     setError(null);
-    setCreateForm((s) => ({
-      ...s,
-      date: selectedDay || ymdTodayLocal(),
-      // best default times
-      startTime: s.startTime || "10:00",
-      endTime: s.endTime || "11:00",
-    }));
-    setCreateOpen(true);
-  }
-
-  function closeCreateBooking() {
-    if (creating) return;
-    setCreateOpen(false);
-  }
-
-  function validateTimeHHMM(v) {
-    return /^\d{2}:\d{2}$/.test(v);
-  }
-
-  function combineLocal(dateYMD, timeHHMM) {
-    // produce local datetime ISO-ish: "YYYY-MM-DDTHH:mm:00"
-    return `${dateYMD}T${timeHHMM}:00`;
-  }
-
-  async function createBooking(e) {
-    e.preventDefault();
-    setError(null);
-
-    const { serviceId, customerName, customerPhone, date, startTime, endTime } = createForm;
-
-    if (!serviceId) return setError("Избери услуга.");
-    if (!customerName.trim()) return setError("Въведи име на клиент.");
-    if (!customerPhone.trim()) return setError("Въведи телефон на клиент.");
-    if (!date) return setError("Избери дата.");
-    if (!validateTimeHHMM(startTime) || !validateTimeHHMM(endTime)) return setError("Часът трябва да е във формат HH:MM.");
-
-    const startAt = new Date(combineLocal(date, startTime));
-    const endAt = new Date(combineLocal(date, endTime));
-
-    if (isNaN(startAt.getTime()) || isNaN(endAt.getTime())) return setError("Невалидна дата/час.");
-    if (endAt <= startAt) return setError("Крайният час трябва да е след началния.");
-
-    setCreating(true);
     try {
-      // IMPORTANT: this requires backend endpoint POST /my/bookings (auth)
-      const res = await fetch(`${API_BASE}/my/bookings`, {
-        method: "POST",
+      const res = await fetch(`${API_BASE}/my/services/${id}`, {
+        method: "DELETE",
         headers: apiHeaders,
-        body: JSON.stringify({
-          serviceId: Number(serviceId),
-          startAt: startAt.toISOString(),
-          endAt: endAt.toISOString(),
-          customerName: customerName.trim(),
-          customerPhone: customerPhone.trim(),
-        }),
       });
-
-      const data = await safeJson(res);
-      if (!res.ok) throw new Error(data?.message || "Неуспешно записване на час");
-
-      setCreateOpen(false);
-      await loadBookings();
-    } catch (e2) {
-      setError(e2.message);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Неуспешно изтриване");
+      await loadServices();
+    } catch (e) {
+      setError(e.message);
     } finally {
-      setCreating(false);
+      setBusy(false);
     }
   }
 
-  // calendar counts & day list
-  const countsByDay = useMemo(() => {
-    const map = {};
+  // ---------- CALENDAR GRID ----------
+  const calendarDays = useMemo(() => {
+    const mStart = startOfMonth(month);
+    const mEnd = endOfMonth(month);
+
+    // Monday-first grid
+    const startWeekday = (mStart.getDay() + 6) % 7; // 0=Mon ... 6=Sun
+    const gridStart = new Date(mStart);
+    gridStart.setDate(mStart.getDate() - startWeekday);
+
+    const endWeekday = (mEnd.getDay() + 6) % 7;
+    const daysToAdd = 6 - endWeekday;
+    const gridEnd = new Date(mEnd);
+    gridEnd.setDate(mEnd.getDate() + daysToAdd);
+
+    const days = [];
+    for (let d = new Date(gridStart); d <= gridEnd; d.setDate(d.getDate() + 1)) {
+      days.push(new Date(d));
+    }
+    return days;
+  }, [month]);
+
+  const bookingsByDay = useMemo(() => {
+    const map = new Map();
     for (const b of bookings) {
-      const key = ymdFromISO(b.start_at);
-      map[key] = (map[key] || 0) + 1;
+      const d = new Date(b.start_at);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      map.set(key, (map.get(key) || 0) + 1);
     }
     return map;
   }, [bookings]);
 
-  const bookingsForSelectedDay = useMemo(() => {
-    if (!selectedDay) return [];
-    return bookings
-      .filter((b) => ymdFromISO(b.start_at) === selectedDay)
-      .sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
-  }, [bookings, selectedDay]);
-
   return (
     <div className="min-h-screen bg-neutral-50">
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: 20 }}>
-        {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
             <h2 style={{ margin: 0 }}>Дашборд</h2>
-            <div style={{ opacity: 0.7, marginTop: 6 }}>Управление на резервации, услуги и екип</div>
+            <div style={{ opacity: 0.7, marginTop: 6 }}>
+              Управление на резервации, услуги и екип
+            </div>
           </div>
 
           <button
@@ -402,7 +514,6 @@ export default function Dashboard({ token, logout }) {
           </button>
         </div>
 
-        {/* Tabs */}
         <div style={{ display: "flex", gap: 8, marginTop: 14, marginBottom: 14, flexWrap: "wrap" }}>
           <button
             onClick={() => setTab("bookings")}
@@ -447,7 +558,6 @@ export default function Dashboard({ token, logout }) {
           </button>
         </div>
 
-        {/* Error */}
         {error && (
           <div
             style={{
@@ -464,380 +574,455 @@ export default function Dashboard({ token, logout }) {
 
         {/* BOOKINGS */}
         {tab === "bookings" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: 14, alignItems: "start" }}>
-            {/* Calendar */}
-            <div>
-              <CalendarMonth
-                monthDate={monthDate}
-                countsByDay={countsByDay}
-                selectedDay={selectedDay}
-                onSelectDay={(day) => setSelectedDay(day)}
-                onPrevMonth={() =>
-                  setMonthDate((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))
-                }
-                onNextMonth={() =>
-                  setMonthDate((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))
-                }
-              />
+          <div style={{ border: "1px solid #eee", borderRadius: 16, background: "#fff", overflow: "hidden" }}>
+            <div
+              style={{
+                padding: 12,
+                borderBottom: "1px solid #eee",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>Календар + резервации</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button
+                  onClick={() => openCreateForDay(selectedDay)}
+                  disabled={busy}
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 12,
+                    border: "1px solid #ddd",
+                    background: "#111",
+                    color: "white",
+                    cursor: busy ? "not-allowed" : "pointer",
+                    opacity: busy ? 0.7 : 1,
+                  }}
+                >
+                  Запиши час
+                </button>
 
-              <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
                 <button
                   onClick={loadBookings}
-                  disabled={loadingBookings || busyBookingId != null || creating}
+                  disabled={loadingBookings || busy}
                   style={{
                     padding: "10px 14px",
                     borderRadius: 12,
                     border: "1px solid #ddd",
                     background: "white",
-                    cursor: loadingBookings || busyBookingId != null || creating ? "not-allowed" : "pointer",
-                    opacity: loadingBookings || busyBookingId != null || creating ? 0.7 : 1,
+                    cursor: loadingBookings || busy ? "not-allowed" : "pointer",
+                    opacity: loadingBookings || busy ? 0.7 : 1,
                   }}
                 >
-                  {loadingBookings ? "Зареждам..." : "Обнови месеца"}
+                  Обнови
                 </button>
+              </div>
+            </div>
+
+            {/* Calendar */}
+            <div style={{ padding: 12, borderBottom: "1px solid #eee" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+                <button
+                  onClick={() => setMonth((m) => addMonths(m, -1))}
+                  style={{ border: "1px solid #ddd", background: "white", borderRadius: 12, padding: "8px 10px", cursor: "pointer" }}
+                >
+                  ←
+                </button>
+
+                <div style={{ fontWeight: 700, textTransform: "capitalize" }}>{monthLabel(month)}</div>
 
                 <button
-                  onClick={openCreateBooking}
-                  disabled={busyBookingId != null || creating}
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 12,
-                    border: "1px solid #111",
-                    background: "#111",
-                    color: "white",
-                    cursor: busyBookingId != null || creating ? "not-allowed" : "pointer",
-                    opacity: busyBookingId != null || creating ? 0.7 : 1,
-                  }}
+                  onClick={() => setMonth((m) => addMonths(m, 1))}
+                  style={{ border: "1px solid #ddd", background: "white", borderRadius: 12, padding: "8px 10px", cursor: "pointer" }}
                 >
-                  + Запиши час
+                  →
                 </button>
               </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+                {["П", "В", "С", "Ч", "П", "С", "Н"].map((w) => (
+                  <div key={w} style={{ fontSize: 12, opacity: 0.7, padding: "0 6px" }}>{w}</div>
+                ))}
+
+                {calendarDays.map((d) => {
+                  const inMonth = d.getMonth() === month.getMonth();
+                  const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+                  const count = bookingsByDay.get(key) || 0;
+                  const selected = sameDay(d, selectedDay);
+
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setSelectedDay(new Date(d))}
+                      style={{
+                        border: "1px solid #eee",
+                        background: selected ? "#111" : "white",
+                        color: selected ? "white" : "#111",
+                        borderRadius: 14,
+                        padding: 10,
+                        textAlign: "left",
+                        cursor: "pointer",
+                        opacity: inMonth ? 1 : 0.45,
+                        minHeight: 64,
+                      }}
+                      title={toDateInput(d)}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{d.getDate()}</div>
+                      <div style={{ fontSize: 12, opacity: selected ? 0.9 : 0.7, marginTop: 4 }}>
+                        {count ? `${count} ч.` : "—"}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* Day panel */}
-            <div style={{ border: "1px solid #eee", borderRadius: 16, background: "#fff", overflow: "hidden" }}>
-              <div
-                style={{
-                  padding: 12,
-                  borderBottom: "1px solid #eee",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 12,
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>
-                  {selectedDay
-                    ? new Intl.DateTimeFormat("bg-BG", { dateStyle: "full" }).format(
-                        new Date(`${selectedDay}T00:00:00`)
-                      )
-                    : "Ден"}
-                </div>
-                <div style={{ opacity: 0.7 }}>
-                  {loadingBookings ? "..." : `${bookingsForSelectedDay.length} бр.`}
+            {/* Day list */}
+            <div style={{ padding: 12, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontWeight: 700 }}>Ден: {new Intl.DateTimeFormat("bg-BG", { dateStyle: "full" }).format(selectedDay)}</div>
+                <div style={{ opacity: 0.7, marginTop: 4 }}>
+                  {loadingBookings ? "Зареждане..." : `${bookings.length} резервации (включително отменени, ако ги връщаш от API)` }
                 </div>
               </div>
 
-              <div style={{ padding: 12 }}>
-                {loadingBookings && (
-                  <div style={{ opacity: 0.7, padding: "8px 0" }}>Зареждане…</div>
-                )}
+              <button
+                onClick={() => openCreateForDay(selectedDay)}
+                disabled={busy}
+                style={{
+                  border: "1px solid #ddd",
+                  background: "white",
+                  borderRadius: 12,
+                  padding: "10px 12px",
+                  cursor: busy ? "not-allowed" : "pointer",
+                  opacity: busy ? 0.7 : 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                + Запиши час за този ден
+              </button>
+            </div>
 
-                {!loadingBookings && bookingsForSelectedDay.length === 0 && (
-                  <div style={{ opacity: 0.7, padding: "8px 0" }}>Няма резервации за този ден.</div>
-                )}
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ background: "#fafafa", textAlign: "left" }}>
+                    <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Начало</th>
+                    <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Край</th>
+                    <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Услуга</th>
+                    <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Клиент</th>
+                    <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Телефон</th>
+                    <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Статус</th>
+                    <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Действия</th>
+                  </tr>
+                </thead>
 
-                {!loadingBookings &&
-                  bookingsForSelectedDay.map((b) => {
+                <tbody>
+                  {!loadingBookings && bookings.length === 0 && (
+                    <tr>
+                      <td colSpan="7" style={{ padding: 18, opacity: 0.7 }}>
+                        Няма резервации за този ден.
+                      </td>
+                    </tr>
+                  )}
+
+                  {bookings.map((b) => {
                     const cancelled = String(b.status || "").toLowerCase() === "cancelled";
-                    const isBusy = busyBookingId === b.id;
 
                     return (
-                      <div
-                        key={b.id}
-                        style={{
-                          border: "1px solid #eee",
-                          borderRadius: 14,
-                          padding: 12,
-                          marginBottom: 10,
-                          background: cancelled ? "#fafafa" : "white",
-                          opacity: cancelled ? 0.75 : 1,
-                        }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "start" }}>
-                          <div>
-                            <div style={{ fontWeight: 800 }}>{formatBG(b.start_at)}</div>
-                            <div style={{ marginTop: 6 }}>
-                              <div style={{ fontWeight: 700 }}>{b.service_name}</div>
-                              <div style={{ opacity: 0.7, fontSize: 12 }}>
-                                {b.duration_min} мин · {Number(b.price).toFixed(2)} лв
-                              </div>
-                            </div>
+                      <tr key={b.id}>
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2", whiteSpace: "nowrap" }}>
+                          {formatBG(b.start_at)}
+                        </td>
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2", whiteSpace: "nowrap" }}>
+                          {formatBG(b.end_at)}
+                        </td>
 
-                            <div style={{ marginTop: 8, fontSize: 13 }}>
-                              <div><strong>Клиент:</strong> {b.customer_name}</div>
-                              <div><strong>Телефон:</strong> {b.customer_phone}</div>
-                              <div style={{ marginTop: 6 }}>
-                                <span
-                                  style={{
-                                    display: "inline-block",
-                                    padding: "4px 8px",
-                                    borderRadius: 999,
-                                    border: "1px solid #ddd",
-                                    fontSize: 12,
-                                  }}
-                                >
-                                  {b.status}
-                                </span>
-                              </div>
-                            </div>
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>
+                          <div style={{ fontWeight: 700 }}>{b.service_name}</div>
+                          <div style={{ opacity: 0.7, fontSize: 12 }}>
+                            {Number(b.price).toFixed(2)} лв · {b.duration_min} мин
                           </div>
+                        </td>
 
-                          <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "stretch" }}>
-                            <button
-                              onClick={() => cancelBooking(b.id)}
-                              disabled={cancelled || loadingBookings || busyBookingId != null || creating}
-                              style={{
-                                border: "1px solid #ddd",
-                                padding: "8px 10px",
-                                borderRadius: 12,
-                                background: "white",
-                                cursor:
-                                  cancelled || loadingBookings || busyBookingId != null || creating
-                                    ? "not-allowed"
-                                    : "pointer",
-                                opacity: cancelled ? 0.6 : 1,
-                                whiteSpace: "nowrap",
-                              }}
-                              title={cancelled ? "Вече е отменена" : "Отмени резервацията"}
-                            >
-                              {isBusy ? "Отказвам..." : cancelled ? "Отменена" : "Отмени"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>{b.customer_name}</td>
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>{b.customer_phone}</td>
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2" }}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "4px 8px",
+                              borderRadius: 999,
+                              border: "1px solid #ddd",
+                              background: cancelled ? "#f7f7f7" : "white",
+                              opacity: cancelled ? 0.7 : 1,
+                              fontSize: 12,
+                            }}
+                          >
+                            {b.status}
+                          </span>
+                        </td>
+
+                        <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2", whiteSpace: "nowrap" }}>
+                          <button
+                            onClick={() => openEditBooking({
+                              ...b,
+                              // normalize fields for edit modal
+                              start_at: toDateTimeLocalValue(b.start_at),
+                              end_at: toDateTimeLocalValue(b.end_at),
+                            })}
+                            disabled={busy}
+                            style={{
+                              border: "1px solid #ddd",
+                              padding: "8px 10px",
+                              borderRadius: 12,
+                              background: "white",
+                              cursor: busy ? "not-allowed" : "pointer",
+                              marginRight: 8,
+                            }}
+                          >
+                            Редактирай
+                          </button>
+
+                          <button
+                            onClick={() => cancelBooking(b.id)}
+                            disabled={busy || cancelled}
+                            style={{
+                              border: "1px solid #ddd",
+                              padding: "8px 10px",
+                              borderRadius: 12,
+                              background: "white",
+                              cursor: busy || cancelled ? "not-allowed" : "pointer",
+                              opacity: cancelled ? 0.6 : 1,
+                            }}
+                            title={cancelled ? "Вече е отменена" : "Отмени резервацията"}
+                          >
+                            {cancelled ? "Отменена" : "Отмени"}
+                          </button>
+                        </td>
+                      </tr>
                     );
                   })}
-              </div>
+                </tbody>
+              </table>
             </div>
 
-            {/* Create booking modal */}
+            {/* Create modal */}
             {createOpen && (
-              <div
-                onMouseDown={(e) => {
-                  if (e.target === e.currentTarget) closeCreateBooking();
-                }}
-                style={{
-                  position: "fixed",
-                  inset: 0,
-                  background: "rgba(0,0,0,0.35)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: 16,
-                  zIndex: 9999,
-                }}
-              >
-                <div
-                  style={{
-                    width: "min(560px, 100%)",
-                    background: "white",
-                    borderRadius: 18,
-                    border: "1px solid #eee",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div style={{ padding: 14, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontWeight: 800 }}>Запиши час</div>
-                    <button
-                      onClick={closeCreateBooking}
-                      disabled={creating}
-                      style={{
-                        border: "1px solid #ddd",
-                        background: "white",
-                        borderRadius: 12,
-                        padding: "8px 10px",
-                        cursor: creating ? "not-allowed" : "pointer",
-                        opacity: creating ? 0.7 : 1,
-                      }}
+              <Modal title="Запиши час" onClose={() => !busy && setCreateOpen(false)}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  <Field label="Услуга">
+                    <select
+                      value={createForm.serviceId}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, serviceId: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
                     >
-                      ✕
-                    </button>
-                  </div>
+                      <option value="">— избери —</option>
+                      {services.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} · {Number(s.price).toFixed(2)} лв
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
 
-                  <form onSubmit={createBooking} style={{ padding: 14 }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                      <div style={{ gridColumn: "1 / -1" }}>
-                        <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
-                          Услуга
-                        </label>
-                        <select
-                          value={createForm.serviceId}
-                          onChange={(e) => setCreateForm((s) => ({ ...s, serviceId: e.target.value }))}
-                          style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
-                        >
-                          <option value="">— избери услуга —</option>
-                          {services.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.name} · {Number(s.price).toFixed(2)} лв
-                            </option>
-                          ))}
-                        </select>
-                        <div style={{ fontSize: 12, opacity: 0.65, marginTop: 6 }}>
-                          Важно: това работи само ако бекендът има <strong>POST /my/bookings</strong>.
-                        </div>
-                      </div>
+                  <Field label="Клиент">
+                    <input
+                      value={createForm.customerName}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, customerName: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                      placeholder="Име и фамилия"
+                    />
+                  </Field>
 
-                      <div>
-                        <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
-                          Дата
-                        </label>
-                        <input
-                          type="date"
-                          value={createForm.date}
-                          onChange={(e) => setCreateForm((s) => ({ ...s, date: e.target.value }))}
-                          style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
-                        />
-                      </div>
+                  <Field label="Телефон">
+                    <input
+                      value={createForm.customerPhone}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, customerPhone: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                      placeholder="0888..."
+                    />
+                  </Field>
 
-                      <div>
-                        <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
-                          Начален час
-                        </label>
-                        <input
-                          type="time"
-                          value={createForm.startTime}
-                          onChange={(e) => setCreateForm((s) => ({ ...s, startTime: e.target.value }))}
-                          style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
-                        />
-                      </div>
+                  <Field label="Начало (startAt)">
+                    <input
+                      type="datetime-local"
+                      value={createForm.startAt}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, startAt: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    />
+                  </Field>
 
-                      <div>
-                        <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
-                          Краен час (ръчно)
-                        </label>
-                        <input
-                          type="time"
-                          value={createForm.endTime}
-                          onChange={(e) => setCreateForm((s) => ({ ...s, endTime: e.target.value }))}
-                          style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
-                        />
-                      </div>
-
-                      <div style={{ gridColumn: "1 / -1" }}>
-                        <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
-                          Име на клиент
-                        </label>
-                        <input
-                          value={createForm.customerName}
-                          onChange={(e) => setCreateForm((s) => ({ ...s, customerName: e.target.value }))}
-                          style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
-                          placeholder="Иван Иванов"
-                        />
-                      </div>
-
-                      <div style={{ gridColumn: "1 / -1" }}>
-                        <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>
-                          Телефон
-                        </label>
-                        <input
-                          value={createForm.customerPhone}
-                          onChange={(e) => setCreateForm((s) => ({ ...s, customerPhone: e.target.value }))}
-                          style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
-                          placeholder="08..."
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
-                      <button
-                        type="button"
-                        onClick={closeCreateBooking}
-                        disabled={creating}
-                        style={{
-                          padding: "10px 14px",
-                          borderRadius: 12,
-                          border: "1px solid #ddd",
-                          background: "white",
-                          cursor: creating ? "not-allowed" : "pointer",
-                          opacity: creating ? 0.7 : 1,
-                        }}
-                      >
-                        Отказ
-                      </button>
-
-                      <button
-                        type="submit"
-                        disabled={creating}
-                        style={{
-                          padding: "10px 14px",
-                          borderRadius: 12,
-                          border: "1px solid #111",
-                          background: "#111",
-                          color: "white",
-                          cursor: creating ? "not-allowed" : "pointer",
-                          opacity: creating ? 0.85 : 1,
-                        }}
-                      >
-                        {creating ? "Записвам..." : "Запиши"}
-                      </button>
-                    </div>
-                  </form>
+                  <Field label="Край (endAt) — ръчно">
+                    <input
+                      type="datetime-local"
+                      value={createForm.endAt}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, endAt: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    />
+                  </Field>
                 </div>
-              </div>
+
+                <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => setCreateOpen(false)}
+                    disabled={busy}
+                    style={{ border: "1px solid #ddd", background: "white", borderRadius: 12, padding: "10px 12px", cursor: busy ? "not-allowed" : "pointer" }}
+                  >
+                    Отказ
+                  </button>
+                  <button
+                    onClick={createBooking}
+                    disabled={busy}
+                    style={{ border: "1px solid #ddd", background: "#111", color: "white", borderRadius: 12, padding: "10px 12px", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.7 : 1 }}
+                  >
+                    {busy ? "Записвам..." : "Запиши"}
+                  </button>
+                </div>
+              </Modal>
+            )}
+
+            {/* Edit booking modal */}
+            {editOpen && editRow && (
+              <Modal title={`Редакция на резервация #${editRow.id}`} onClose={() => !busy && setEditOpen(false)}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  <Field label="Услуга">
+                    <select
+                      value={String(editRow.service_id ?? "")}
+                      onChange={(e) => setEditRow((r) => ({ ...r, service_id: Number(e.target.value) }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    >
+                      <option value="">—</option>
+                      {services.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} · {Number(s.price).toFixed(2)} лв
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
+                  <Field label="Клиент">
+                    <input
+                      value={editRow.customer_name || ""}
+                      onChange={(e) => setEditRow((r) => ({ ...r, customer_name: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    />
+                  </Field>
+
+                  <Field label="Телефон">
+                    <input
+                      value={editRow.customer_phone || ""}
+                      onChange={(e) => setEditRow((r) => ({ ...r, customer_phone: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    />
+                  </Field>
+
+                  <Field label="Начало (startAt)">
+                    <input
+                      type="datetime-local"
+                      value={editRow.start_at}
+                      onChange={(e) => setEditRow((r) => ({ ...r, start_at: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    />
+                  </Field>
+
+                  <Field label="Край (endAt)">
+                    <input
+                      type="datetime-local"
+                      value={editRow.end_at}
+                      onChange={(e) => setEditRow((r) => ({ ...r, end_at: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    />
+                  </Field>
+
+                  <Field label="Статус">
+                    <select
+                      value={editRow.status || "confirmed"}
+                      onChange={(e) => setEditRow((r) => ({ ...r, status: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    >
+                      <option value="confirmed">confirmed</option>
+                      <option value="cancelled">cancelled</option>
+                    </select>
+                  </Field>
+                </div>
+
+                <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => setEditOpen(false)}
+                    disabled={busy}
+                    style={{ border: "1px solid #ddd", background: "white", borderRadius: 12, padding: "10px 12px", cursor: busy ? "not-allowed" : "pointer" }}
+                  >
+                    Отказ
+                  </button>
+                  <button
+                    onClick={saveEditBooking}
+                    disabled={busy}
+                    style={{ border: "1px solid #ddd", background: "#111", color: "white", borderRadius: 12, padding: "10px 12px", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.7 : 1 }}
+                  >
+                    {busy ? "Запазвам..." : "Запази"}
+                  </button>
+                </div>
+              </Modal>
             )}
           </div>
         )}
 
         {/* SERVICES */}
         {tab === "services" && (
-          <div style={{ border: "1px solid #eee", borderRadius: 16, background: "#fff" }}>
-            <div style={{ padding: 12, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between" }}>
+          <div style={{ border: "1px solid #eee", borderRadius: 16, background: "#fff", overflow: "hidden" }}>
+            <div
+              style={{
+                padding: 12,
+                borderBottom: "1px solid #eee",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
               <div style={{ fontWeight: 700 }}>Услуги</div>
               <div style={{ opacity: 0.7 }}>{loadingServices ? "Зареждане..." : `${services.length} бр.`}</div>
             </div>
 
-            <div style={{ padding: 12 }}>
+            <div style={{ padding: 12, borderBottom: "1px solid #eee" }}>
               <form onSubmit={addService} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Име</label>
+                <Field label="Име">
                   <input
                     value={newService.name}
                     onChange={(e) => setNewService((s) => ({ ...s, name: e.target.value }))}
-                    style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
                     placeholder="Маникюр…"
                   />
-                </div>
+                </Field>
 
-                <div>
-                  <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Цена (лв)</label>
+                <Field label="Цена (лв)">
                   <input
                     type="number"
                     step="0.01"
                     value={newService.price}
                     onChange={(e) => setNewService((s) => ({ ...s, price: e.target.value }))}
-                    style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
                     placeholder="50"
                   />
-                </div>
+                </Field>
 
-                <div>
-                  <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Време (мин)</label>
+                <Field label="Време (мин)">
                   <input
                     type="number"
                     value={newService.duration_min}
                     onChange={(e) => setNewService((s) => ({ ...s, duration_min: e.target.value }))}
-                    style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
                     placeholder="60"
                   />
-                </div>
+                </Field>
 
-                <div>
-                  <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Специалист (по желание)</label>
+                <Field label="Специалист (по желание)">
                   <select
                     value={newService.staff_id}
                     onChange={(e) => setNewService((s) => ({ ...s, staff_id: e.target.value }))}
-                    style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd", minWidth: 220 }}
+                    style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
                   >
                     <option value="">Целият салон</option>
                     {staff
@@ -848,17 +1033,19 @@ export default function Dashboard({ token, logout }) {
                         </option>
                       ))}
                   </select>
-                </div>
+                </Field>
 
                 <button
                   type="submit"
+                  disabled={busy}
                   style={{
                     padding: "10px 14px",
                     borderRadius: 12,
                     border: "1px solid #ddd",
                     background: "#111",
                     color: "white",
-                    cursor: "pointer",
+                    cursor: busy ? "not-allowed" : "pointer",
+                    opacity: busy ? 0.7 : 1,
                   }}
                 >
                   Добави
@@ -867,12 +1054,14 @@ export default function Dashboard({ token, logout }) {
                 <button
                   type="button"
                   onClick={loadServices}
+                  disabled={busy}
                   style={{
                     padding: "10px 14px",
                     borderRadius: 12,
                     border: "1px solid #ddd",
                     background: "white",
-                    cursor: "pointer",
+                    cursor: busy ? "not-allowed" : "pointer",
+                    opacity: busy ? 0.7 : 1,
                   }}
                 >
                   Обнови
@@ -888,12 +1077,14 @@ export default function Dashboard({ token, logout }) {
                     <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Цена</th>
                     <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Време</th>
                     <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Кой изпълнява</th>
+                    <th style={{ padding: 12, borderBottom: "1px solid #eee" }}>Действия</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {!loadingServices && services.length === 0 && (
                     <tr>
-                      <td colSpan="4" style={{ padding: 18, opacity: 0.7 }}>
+                      <td colSpan="5" style={{ padding: 18, opacity: 0.7 }}>
                         Няма услуги.
                       </td>
                     </tr>
@@ -913,95 +1104,116 @@ export default function Dashboard({ token, logout }) {
                           <span style={{ opacity: 0.8 }}>Целият салон</span>
                         )}
                       </td>
+                      <td style={{ padding: 12, borderBottom: "1px solid #f2f2f2", whiteSpace: "nowrap" }}>
+                        <button
+                          onClick={() => openEditServiceRow(s)}
+                          disabled={busy}
+                          style={{
+                            border: "1px solid #ddd",
+                            padding: "8px 10px",
+                            borderRadius: 12,
+                            background: "white",
+                            cursor: busy ? "not-allowed" : "pointer",
+                            marginRight: 8,
+                          }}
+                        >
+                          Редактирай
+                        </button>
+                        <button
+                          onClick={() => deleteService(s.id)}
+                          disabled={busy}
+                          style={{
+                            border: "1px solid #ddd",
+                            padding: "8px 10px",
+                            borderRadius: 12,
+                            background: "white",
+                            cursor: busy ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          Изтрий
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-
-              <div style={{ padding: 12, fontSize: 12, opacity: 0.7 }}>
-                (Редакция/Изтриване на услуги ще добавим в следващата стъпка с нови endpoints.)
-              </div>
             </div>
+
+            {editServiceOpen && editService && (
+              <Modal title={`Редакция на услуга #${editService.id}`} onClose={() => !busy && setEditServiceOpen(false)}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  <Field label="Име">
+                    <input
+                      value={editService.name}
+                      onChange={(e) => setEditService((s) => ({ ...s, name: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    />
+                  </Field>
+
+                  <Field label="Цена (лв)">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editService.price}
+                      onChange={(e) => setEditService((s) => ({ ...s, price: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    />
+                  </Field>
+
+                  <Field label="Време (мин)">
+                    <input
+                      type="number"
+                      value={editService.duration_min}
+                      onChange={(e) => setEditService((s) => ({ ...s, duration_min: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    />
+                  </Field>
+
+                  <Field label="Специалист (по желание)">
+                    <select
+                      value={String(editService.staff_id ?? "")}
+                      onChange={(e) => setEditService((s) => ({ ...s, staff_id: e.target.value }))}
+                      style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
+                    >
+                      <option value="">Целият салон</option>
+                      {staff
+                        .filter((st) => st.is_active)
+                        .map((st) => (
+                          <option key={st.id} value={st.id}>
+                            {st.full_name} · {roleLabel(st.role)}
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                </div>
+
+                <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => setEditServiceOpen(false)}
+                    disabled={busy}
+                    style={{ border: "1px solid #ddd", background: "white", borderRadius: 12, padding: "10px 12px", cursor: busy ? "not-allowed" : "pointer" }}
+                  >
+                    Отказ
+                  </button>
+                  <button
+                    onClick={saveEditService}
+                    disabled={busy}
+                    style={{ border: "1px solid #ddd", background: "#111", color: "white", borderRadius: 12, padding: "10px 12px", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.7 : 1 }}
+                  >
+                    {busy ? "Запазвам..." : "Запази"}
+                  </button>
+                </div>
+              </Modal>
+            )}
           </div>
         )}
 
-        {/* STAFF */}
+        {/* STAFF (as-is) */}
         {tab === "staff" && (
-          <div style={{ border: "1px solid #eee", borderRadius: 16, background: "#fff" }}>
+          <div style={{ border: "1px solid #eee", borderRadius: 16, background: "#fff", overflow: "hidden" }}>
             <div style={{ padding: 12, borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between" }}>
               <div style={{ fontWeight: 700 }}>Екип</div>
               <div style={{ opacity: 0.7 }}>{loadingStaff ? "Зареждане..." : `${staff.length} бр.`}</div>
-            </div>
-
-            <div style={{ padding: 12 }}>
-              <form onSubmit={addStaff} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Име</label>
-                  <input
-                    value={newStaff.full_name}
-                    onChange={(e) => setNewStaff((s) => ({ ...s, full_name: e.target.value }))}
-                    style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
-                    placeholder="Мария Петрова"
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Роля</label>
-                  <select
-                    value={newStaff.role}
-                    onChange={(e) => setNewStaff((s) => ({ ...s, role: e.target.value }))}
-                    style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd", minWidth: 220 }}
-                  >
-                    <option value="manicurist">Маникюрист</option>
-                    <option value="pedicurist">Педикюрист</option>
-                    <option value="hairdresser">Фризьор</option>
-                    <option value="cosmetician">Козметик</option>
-                    <option value="barber">Бръснар</option>
-                    <option value="makeup">Грим</option>
-                    <option value="lashes">Мигли/Вежди</option>
-                    <option value="massage">Масаж</option>
-                    <option value="other">Друго</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: "block", fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Телефон</label>
-                  <input
-                    value={newStaff.phone}
-                    onChange={(e) => setNewStaff((s) => ({ ...s, phone: e.target.value }))}
-                    style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd" }}
-                    placeholder="0888..."
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 12,
-                    border: "1px solid #ddd",
-                    background: "#111",
-                    color: "white",
-                    cursor: "pointer",
-                  }}
-                >
-                  Добави
-                </button>
-
-                <button
-                  type="button"
-                  onClick={loadStaff}
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 12,
-                    border: "1px solid #ddd",
-                    background: "white",
-                    cursor: "pointer",
-                  }}
-                >
-                  Обнови
-                </button>
-              </form>
             </div>
 
             <div style={{ overflowX: "auto" }}>
@@ -1017,9 +1229,7 @@ export default function Dashboard({ token, logout }) {
                 <tbody>
                   {!loadingStaff && staff.length === 0 && (
                     <tr>
-                      <td colSpan="4" style={{ padding: 18, opacity: 0.7 }}>
-                        Няма добавени специалисти.
-                      </td>
+                      <td colSpan="4" style={{ padding: 18, opacity: 0.7 }}>Няма добавени специалисти.</td>
                     </tr>
                   )}
 
@@ -1033,6 +1243,23 @@ export default function Dashboard({ token, logout }) {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            <div style={{ padding: 12 }}>
+              <button
+                onClick={loadStaff}
+                disabled={busy}
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 12,
+                  border: "1px solid #ddd",
+                  background: "white",
+                  cursor: busy ? "not-allowed" : "pointer",
+                  opacity: busy ? 0.7 : 1,
+                }}
+              >
+                Обнови
+              </button>
             </div>
           </div>
         )}
